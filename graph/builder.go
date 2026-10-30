@@ -39,14 +39,14 @@ func (g *Graph) buildGraph() error {
 	ctx, cancel = context.WithTimeout(ctx, time.Minute*10)
 	defer cancel()
 
+	if err := g.loadCountries(ctx, s3); err != nil {
+		return fmt.Errorf("load countries: %w", err)
+	}
 	if err := g.loadCompanies(ctx, s3); err != nil {
 		return fmt.Errorf("load companies: %w", err)
 	}
 	if err := g.loadSectors(ctx, s3); err != nil {
 		return fmt.Errorf("load sectors: %w", err)
-	}
-	if err := g.loadCountries(ctx, s3); err != nil {
-		return fmt.Errorf("load countries: %w", err)
 	}
 	if err := g.loadCommodities(ctx, s3); err != nil {
 		return fmt.Errorf("load commodities: %w", err)
@@ -64,16 +64,22 @@ func (g *Graph) buildGraph() error {
 
 func (g *Graph) loadCompanies(ctx context.Context, s3 *s3Client.Client) error {
 
-	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.CompanyNode](s3, "companies.parquet").Read(ctx) {
+	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.CompanyNode](s3, "graph/companies.parquet").Read(ctx) {
 		if err != nil {
 			return err
 		}
 
+		country, ok := g.CountriesByIso[message.GetCountryIso()]
+		if !ok {
+			return fmt.Errorf("country %s not found, 'Country' should always be present for Company %s", message.GetCountryIso(), message.GetName())
+		}
+
 		comp := &Company{
-			ID:     message.GetId(),
-			CIK:    message.GetCik(),
-			Ticker: message.GetTicker(),
-			Name:   message.GetName(),
+			ID:      message.GetId(),
+			CIK:     message.GetCik(),
+			Ticker:  message.GetTicker(),
+			Name:    message.GetName(),
+			Country: country,
 		}
 
 		g.CompaniesById[comp.ID] = comp
@@ -93,7 +99,7 @@ func toSectorTaxonomyKind(taxonomy persistedEconGraph.SectorTaxonomy) (SectorTax
 }
 
 func (g *Graph) loadSectors(ctx context.Context, s3 *s3Client.Client) error {
-	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.SectorNode](s3, "sectors.parquet").Read(ctx) {
+	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.SectorNode](s3, "graph/sectors.parquet").Read(ctx) {
 		if err != nil {
 			return err
 		}
@@ -116,7 +122,7 @@ func (g *Graph) loadSectors(ctx context.Context, s3 *s3Client.Client) error {
 }
 
 func (g *Graph) loadCountries(ctx context.Context, s3 *s3Client.Client) error {
-	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.CountryNode](s3, "countries.parquet").Read(ctx) {
+	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.CountryNode](s3, "graph/countries.parquet").Read(ctx) {
 		if err != nil {
 			return err
 		}
@@ -132,7 +138,7 @@ func (g *Graph) loadCountries(ctx context.Context, s3 *s3Client.Client) error {
 }
 
 func (g *Graph) loadCommodities(ctx context.Context, s3 *s3Client.Client) error {
-	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.CommodityNode](s3, "commodities.parquet").Read(ctx) {
+	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.CommodityNode](s3, "graph/commodities.parquet").Read(ctx) {
 		if err != nil {
 			return err
 		}
@@ -161,7 +167,7 @@ func (g *Graph) loadCommodities(ctx context.Context, s3 *s3Client.Client) error 
 
 func (g *Graph) loadSupplyChainEdges(ctx context.Context, s3 *s3Client.Client) error {
 
-	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.SupplyChainEdge](s3, "supply-chain-edges.parquet").Read(ctx) {
+	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.SupplyChainEdge](s3, "graph/supply-chain-edges.parquet").Read(ctx) {
 		if err != nil {
 			return err
 		}
@@ -246,7 +252,7 @@ func (g *Graph) loadSupplyChainEdges(ctx context.Context, s3 *s3Client.Client) e
 
 func (g *Graph) loadMacroRevenueEdges(ctx context.Context, s3 *s3Client.Client) error {
 
-	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.MacroRevenueEdge](s3, "macro-revenue-edges.parquet").Read(ctx) {
+	for message, err := range s3Client.NewProtoFileReader[persistedEconGraph.MacroRevenueEdge](s3, "graph/macro-revenue-edges.parquet").Read(ctx) {
 		if err != nil {
 			return err
 		}

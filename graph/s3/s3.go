@@ -2,26 +2,20 @@ package s3
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-
-	"errors"
-	"io"
-
 	"github.com/parquet-go/parquet-go"
 )
 
-// DefaultBucketName is the primary S3 bucket for physical economic graph assets
 const DefaultBucketName = "stonkydb-assets"
-
-// DefaultFullGraphKey is the S3 object key for the consolidated graph snapshot
 const DefaultFullGraphKey = "graphs/latest/full_graph.json.gz"
 
-// Client wraps AWS S3 client with domain methods for the Physical Econ Graph
 type Client struct {
 	client *s3.Client
 	Bucket string
@@ -36,7 +30,6 @@ func LoadEnvironment(key string) (string, bool) {
 }
 
 func NewClient(ctx context.Context) (*Client, error) {
-
 	bucket := os.Getenv("AWS_S3_BUCKET")
 	if bucket == "" {
 		bucket = DefaultBucketName
@@ -44,13 +37,12 @@ func NewClient(ctx context.Context) (*Client, error) {
 
 	region := os.Getenv("AWS_REGION")
 	if region == "" {
-		region = "us-east-1"
+		region = "us-east-2"
 	}
 
 	var optFns []func(*config.LoadOptions) error
 	optFns = append(optFns, config.WithRegion(region))
 
-	// Match credentials pattern from Python pipeline (.env AWS_ACCESS_KEY / AWS_SECRET_ACCESS_KEY)
 	accessKey := os.Getenv("AWS_ACCESS_KEY")
 	if accessKey == "" {
 		accessKey = os.Getenv("AWS_ACCESS_KEY_ID")
@@ -68,16 +60,22 @@ func NewClient(ctx context.Context) (*Client, error) {
 		return nil, fmt.Errorf("failed to load aws config: %w", err)
 	}
 
+	var s3OptFns []func(*s3.Options)
+	if os.Getenv("AWS_ENDPOINT_URL") != "" {
+		s3OptFns = append(s3OptFns, func(o *s3.Options) {
+			o.UsePathStyle = true
+		})
+	}
+
 	return &Client{
-		client: s3.NewFromConfig(cfg),
+		client: s3.NewFromConfig(cfg, s3OptFns...),
 		Bucket: bucket,
 	}, nil
 }
 
 type ProtoFileReader[T any] struct {
-	reader *parquet.GenericReader[T]
-	s3     *Client
-	key    string
+	s3  *Client
+	key string
 }
 
 func NewProtoFileReader[T any](s3 *Client, key string) *ProtoFileReader[T] {
